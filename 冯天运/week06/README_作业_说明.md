@@ -172,7 +172,29 @@ python 换模型对照实验.py --steps 50 --models chinese-roberta-wwm-ext
 ```
 它把两个模型的**数据、步数、超参、评测集**全部对齐，只换 backbone，产出
 `outputs/model_swap_experiment.json` 与各自独立的 `code/outputs/ckpt_<model>_s50.pt`（不覆盖原权重），结果自动合并。
-**本次实测结论**：同 50 步（batch 64）下，roberta-wwm-ext Macro-F1 0.4277 vs bert-base-chinese 0.3964，**高 0.0313**；准确率 0.446 vs 0.412。
+再推进一步就能把“差多少”说清楚（不用重训，只用同一份 ckpt 重评 + 配对 bootstrap）：
+
+```bash
+# 重评全量 8,901 条（分词器必须与权重同源，要切实现变量）
+set WEEK6_BERT_DIR=bert-base-chinese
+cd code && python bert/predict_bert.py --ckpt outputs/ckpt_bert-base-chinese_s50.pt --n 0 --out outputs/bert_pred_bert-base-chinese_s50_full.json && cd ..
+set WEEK6_BERT_DIR=chinese-roberta-wwm-ext
+cd code && python bert/predict_bert.py --ckpt outputs/ckpt_chinese-roberta-wwm-ext_s50.pt --n 0 --out outputs/bert_pred_chinese-roberta-wwm-ext_s50_full.json && cd ..
+
+python 配对bootstrap检验.py     # 配对 bootstrap 95% CI + 逐类 F1 对比
+```
+
+**本次实测结论**：
+
+| 口径 | bert-base-chinese | roberta-wwm-ext | Δ Macro-F1 | 95% CI | 显著？ |
+|---|---|---|---|---|---|
+| 500 条抽样 | 0.3964 | 0.4277 | +0.0313 | [−0.0177, +0.0798] | **否**（跨 0） |
+| 8,901 条全量 | 0.3831 | 0.4399 | **+0.0567** | **[+0.0456, +0.0675]** | **是**（净变化 +503 条） |
+
+提升集中在长尾类（财经 +0.18、证券 +0.13），头部类基本持平。
+一个必须记住的口径事实：这是**欠训练（50 步）**下的差距；参考课程标准答案（3 epoch 收敛后）
+的差距只有 **+0.0100**（CI [+0.0019, +0.0178]）—— 两者不矛盾，反而说明 **roberta 收敛更快**，
+所以在小预算场景下优势被放大，到收敛后就只剩下一点。
 完整设计、口径与结论见 **`对比实验报告.md`**。
 
 > 为什么是 50 步：本机只有 CPU，bert-base 完整 1 epoch 实测 15,978 s（≈4.44 h）。50 步是"前台跑得完、且两模型严格同口径"的规模。结论应读作"**同等训练预算下 roberta 更优**"。
@@ -244,8 +266,8 @@ git commit -m "week6 分类任务：七种方法对比 + 换预训练模型实�
 |---|---|---|
 | `code/` | 全部源码（16 个 .py）+ 文档（ARCHITECTURE / USAGE_GUIDE / README / RESUME_GUIDE） | ~60 KB |
 | `code/data/` | train.json 53,360 条 + val.json 10,000 条 | 8.3 MB |
-| `code/outputs/` | 各路 `*_pred.json`、`summary.md`、`bert_train_log.json`、对照实验的 `bert_pred_*_s50.json` 与 `swap_*.log` | ~2.5 MB |
-| `outputs/` | `混淆矩阵.png`、`混淆矩阵_4组.png`、`group_metrics.json`、`model_swap_experiment.json` | ~300 KB |
+| `code/outputs/` | 各路 `*_pred.json`、`summary.md`、`bert_train_log.json`、对照实验的 `bert_pred_*_s50.json`（500 条）、`bert_pred_*_s50_full.json`（8,901 条）与 `swap_*.log` | ~5 MB |
+| `outputs/` | `混淆矩阵.png`、`混淆矩阵_4组.png`、`group_metrics.json`、`model_swap_experiment.json`、`paired_bootstrap.json` | ~320 KB |
 | `换模型对照实验.py`、`切换模型实验.py`、`回填对比结果.py`、`汇总分组指标.py`、`plot_confusion.py` | 本周脚本 | ~15 KB |
 | `对比实验报告.md`、`README_作业_说明.md`、`作业素材_混淆分析.md` | 作业说明与现成数据/草稿 | ~34 KB |
 | `课件/`、`产品设计稿/` | 课件 PPT + 5 个静态产品稿 | 3.8 MB |
